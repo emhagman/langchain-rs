@@ -1,12 +1,16 @@
-use std::{collections::HashMap, vec};
+use std::{cell::RefCell, collections::HashMap, vec};
 
-use crate::llm::{Message, LLM};
+use crate::{
+    callbacks::{Callback, CallbackManager},
+    llm::{Message, LLM},
+};
 use serde::Serialize;
 use tinytemplate::TinyTemplate;
 
 pub struct MapReduceChain<'a> {
     llm: Box<dyn LLM>,
     templates: TinyTemplate<'a>,
+    callbacks: RefCell<Vec<Box<&'a dyn Callback>>>,
 }
 
 #[derive(Serialize)]
@@ -20,7 +24,18 @@ impl<'a> MapReduceChain<'a> {
         let mut tt = TinyTemplate::new();
         tt.add_template("map", map_prompt).unwrap();
         tt.add_template("reduce", reduce_prompt).unwrap();
-        Self { llm, templates: tt }
+        Self {
+            llm,
+            templates: tt,
+            callbacks: RefCell::new(Vec::new()),
+        }
+    }
+
+    pub fn add_callback<T>(&self, callback: &'a T)
+    where
+        T: Callback,
+    {
+        self.callbacks.borrow_mut().push(Box::new(callback));
     }
 
     pub async fn call(&self, inputs: HashMap<&str, &str>) -> String {
@@ -41,7 +56,10 @@ impl<'a> MapReduceChain<'a> {
                 .unwrap();
             let messages = vec![Message { content: &prompt }];
             let response = self.llm.complete(&messages).await.unwrap();
-            println!("MAP SUMMARY: {}", response.content);
+            CallbackManager::on_chain(
+                self.callbacks.borrow().as_slice(),
+                &format!("MAP: {}", response.content),
+            );
             map_output += &response.content;
         }
         let reduce_context = Context {

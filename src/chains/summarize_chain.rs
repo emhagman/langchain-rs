@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use crate::llm::LLM;
+use crate::{callbacks::Callback, llm::LLM};
 
 use super::MapReduceChain;
 
 pub struct SummarizeChain<'a> {
-    map_reduce_chain: MapReduceChain<'a>,
+    pub chain: MapReduceChain<'a>,
 }
 
 const MAP_PROMPT: &str = "
@@ -24,12 +24,17 @@ DOCUMENT: {document}
 QUESTION: {question}
 ";
 
-impl SummarizeChain<'_> {
+impl<'a> SummarizeChain<'a> {
     pub fn new(llm: Box<dyn LLM>) -> Self {
         let chain = MapReduceChain::new(llm, MAP_PROMPT, REDUCE_PROMPT);
-        Self {
-            map_reduce_chain: chain,
-        }
+        Self { chain }
+    }
+
+    pub fn add_callback<T>(&self, callback: &'a T)
+    where
+        T: Callback,
+    {
+        self.chain.add_callback(callback);
     }
 
     pub async fn summarize(&self, question: &str, text: &str) -> String {
@@ -40,6 +45,6 @@ impl SummarizeChain<'_> {
     }
 
     pub async fn call(&self, inputs: HashMap<&str, &str>) -> String {
-        self.map_reduce_chain.call(inputs).await
+        self.chain.call(inputs).await
     }
 }
